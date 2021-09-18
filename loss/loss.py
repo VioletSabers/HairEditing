@@ -45,9 +45,8 @@ class LPIPSLoss:
             per_loss += self.MSE_loss(syn1, r1)
             per_loss += self.MSE_loss(syn2, r2)
             per_loss += self.MSE_loss(syn3, r3)
-            mse = self.MSE_loss(syn_img, img)
 
-            loss = cfg.I2SLoss.lamb_p * per_loss + cfg.I2SLoss.lamb_mse * mse
+            loss = cfg.I2SLoss.lamb_p * per_loss
             return loss
         else:
             if mul_mask:
@@ -66,8 +65,7 @@ class LPIPSLoss:
             per_loss += self.MSE_loss(syn2 * mask_layer, r2 * mask_layer)
             mask_layer = F.upsample(mask_p, scale_factor=syn3.shape[-1]/mask_size)
             per_loss += self.MSE_loss(syn3 * mask_layer, r3 * mask_layer)
-            mse = self.MSE_loss(syn_img_p * mask_p, img_p * mask_p)
-            return cfg.I2SLoss.lamb_p * per_loss + cfg.I2SLoss.lamb_mse * mse
+            return cfg.I2SLoss.lamb_p * per_loss
 
 class I2SNoiseLoss:
     def __init__(self):

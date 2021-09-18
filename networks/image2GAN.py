@@ -28,10 +28,18 @@ class ImageReconstruction:
         self.G = StyleGAN2.Generator(cfg.rec.size, 512, 8)
         self.G.load_state_dict(torch.load(pretrain_path)["g_ema"], strict=False)
         self.G = nn.DataParallel(self.G).cuda()
+        self.mseloss = nn.MSELoss(reduction='mean')
         self.G.eval()
     
-    def reconstruction(self, image):
+    def reconstruction(self, image, image_name):
+        if os.path.exists("results/" + image_name.split('.')[0]) == False:
+            os.mkdir("results/" + image_name.split('.')[0])
+        if os.path.exists("results/" + image_name.split('.')[0] + '/rec_stage1') == False:
+            os.mkdir("results/" + image_name.split('.')[0] + '/rec_stage1')
+            os.mkdir("results/" + image_name.split('.')[0] + '/rec_stage2')
+       
         n_mean_latent = 10000
+        
         with torch.no_grad():
             noise_sample = torch.randn(n_mean_latent, 512).cuda()
             latent_out = self.G.module.style(noise_sample)
@@ -60,9 +68,12 @@ class ImageReconstruction:
             latent_n = latent_noise(latent_in, noise_strength.item())
             syn_img, _ = self.G([latent_n], input_is_latent=True, noise=noises)
             syn_img = (syn_img + 1.0) / 2.0
-            loss = self.lpipsloss(syn_img, image)
+            loss = self.lpipsloss(syn_img, image) + cfg.I2SLoss.lamb_mse * self.mseloss(syn_img, image)
             loss.backward()
             w_opt.step()
+            if (e + 1) % 500 == 0:
+                print("\riter{}: loss -- {}".format(e + 1, loss.item()))
+                save_image(syn_img.clamp(0, 1), "results/" + image_name.split('.')[0] + '/rec_stage1/' + "rec_{}.png".format(e + 1))
 
         # 优化noise
         for e in range(cfg.rec.w_epochs, cfg.rec.w_epochs + cfg.rec.n_epochs):
@@ -72,10 +83,14 @@ class ImageReconstruction:
             latent_n = latent_noise(latent_in, noise_strength.item())
             syn_img, _ = self.G([latent_n], input_is_latent=True, noise=noises)
             syn_img = (syn_img + 1.0) / 2.0
-            loss = self.noiseloss(syn_img, image)
+            loss = self.noiseloss(syn_img, image) + cfg.I2SLoss.lamb_mse * self.mseloss(syn_img, image)
             loss.backward()
             n_opt.step()
-        save_image(syn_img.clamp(0, 1), "./temp.png")
+            if (e + 1) % 500 == 0:
+                print("\riter{}: loss -- {}".format(e + 1, loss.item()))
+                save_image(syn_img.clamp(0, 1), "results/" + image_name.split('.')[0] + '/rec_stage1/' + "rec_{}.png".format(e + 1))
+
+
         return latent_in, noises
     
     def get_layerout(self, size=32):

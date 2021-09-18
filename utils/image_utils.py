@@ -16,7 +16,7 @@ def getTargetMask(FM, HM):
 
     
 
-def getImagePaths(raw, mask, background, *image_path):
+def getImagePaths(raw, mask, *image_path):
     out = OrderedDict()
     for i, img_path in enumerate(image_path):
         I_path = os.path.join(raw, img_path)

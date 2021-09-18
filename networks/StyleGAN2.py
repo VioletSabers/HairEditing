@@ -550,7 +550,7 @@ class Generator(nn.Module):                 #主网络（生成网络）
         
         out = self.input(latent)
         out = self.conv1(out, latent[:, 0], noise=noise[0])
-        self.layerout[out.shape[-1]] = out
+        self.layerout[out.shape[-1]] = (out, None)
 
         skip = self.to_rgb1(out, latent[:, 1])
 

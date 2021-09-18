@@ -1,6 +1,6 @@
 class cfg:
     size = 1024
-
+    stage1 = 600
     class image:
         resize = 256
 
@@ -9,9 +9,9 @@ class cfg:
         size = 1024
         step = 2000
         lr = 0.05
-        w_epochs = 400
-        n_epochs = 400
-        fs_epochs = 1000
+        w_epochs = 1000
+        n_epochs = 500
+        fs_epochs = 1500
         noise = 0.05
         noise_ramp = 0.75
 
@@ -21,13 +21,13 @@ class cfg:
         lamb_noisemse = (1e-5,)
     
     class blend:
-        lr = 0.03
+        stage1_lr = 0.01
         noise = 0.05
-        w_epochs = 1200
+        w_epochs = 1000
         noise_ramp = 0.75
         step = 2000
         
-        lamb_styleloss = 0.0002
+        lamb_styleloss = 10
         lamb_shapeloss = 0.00001
         lamb_classifierloss_1 = 0.0001
         lamb_classifierloss_2 = 0.000001
