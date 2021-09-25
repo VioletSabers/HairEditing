@@ -5,6 +5,28 @@ import numpy as np
 import pickle
 import os
 from PIL import Image
+import scipy.ndimage
+
+def handle(img):
+    img = torch.clamp(img, -1, 1)
+    img = (img + 1.0) / 2.0
+    return img
+
+def dilation(mask: torch.Tensor, iteration=10):
+    mask = mask.squeeze()
+    mask = scipy.ndimage.binary_dilation(
+        mask.squeeze().cpu().numpy(), iterations=iteration
+    )
+    mask = torch.from_numpy(mask).float().cuda()
+    return mask.unsqueeze(0).unsqueeze(0)
+
+def erosion(mask: torch.Tensor, iteration=10):
+    mask = mask.squeeze()
+    mask = scipy.ndimage.binary_erosion(
+        mask.squeeze().cpu().numpy(), iterations=iteration
+    )
+    mask = torch.from_numpy(mask).float().cuda()
+    return mask.unsqueeze(0).unsqueeze(0)
 
 def getTargetMask(FM, HM):
     FM = FM.squeeze().unsqueeze(0)
@@ -96,4 +118,15 @@ def getImageMiddle(img: torch.Tensor):
 
     return int(x.float().mean().item()), int(y.float().mean().item())
 
-
+def save(image_m):
+    image = image_m.data
+    while len(image.shape) < 4:
+        image = image.unsqueeze(0)
+    if image.shape[1] == 3:
+        writeImageToDisk(
+            [image], ['temp_image.png'], './results'
+        )
+    else:
+        writeMaskToDisk(
+            [image], ['temp_mask.png'], './results'
+        )

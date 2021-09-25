@@ -160,9 +160,9 @@ class SegLoss():
 
         return  -(torch.log(mask[0][0] + 1e-6) * target_mask[0][0]).mean() \
                 -(torch.log(mask[0][1] + 1e-6) * target_mask[0][1]).mean() \
-                -(torch.log(mask[0][2] + 1e-6) * target_mask[0][2]).mean() * 3 \
-                +(torch.log(mask[0][1] + 1e-6) * target_mask[0][3]).mean() \
-                +(torch.log(mask[0][2] + 1e-6) * target_mask[0][4]).mean()
+                -(torch.log(mask[0][2] + 1e-6) * target_mask[0][2]).mean() \
+                +(torch.log(mask[0][1] + 1e-6) * target_mask[0][3]).mean() * 5 \
+                +(torch.log(mask[0][2] + 1e-6) * target_mask[0][4]).mean() * 5
 
 
 class OneclassLoss():
@@ -170,66 +170,3 @@ class OneclassLoss():
         assert(mask.shape == target_mask.shape)
         loss = -(torch.log(mask) * target_mask).mean()
         return loss
-
-class ShapeLoss():
-    def __init__(self):
-        self.upsample = nn.DataParallel(nn.Upsample(scale_factor=0.25, mode='bilinear'))
-    def __call__(self, mask1, mask2):
-        mask1_down1, mask2_down1 = self.upsample(mask1), self.upsample(mask2)
-        mask1_down2, mask2_down2 = self.upsample(mask1_down1), self.upsample(mask2_down1)
-        mask1_down3, mask2_down3 = self.upsample(mask1_down2), self.upsample(mask2_down2)
-
-        return (mask1_down3 - mask2_down3).norm() + \
-             1/16 * (mask1_down2 - mask2_down2).norm()
-            
-
-class OrientLoss():
-    def __init__(self, image, hair_mask, size=1024):
-        assert(image.shape[-1] == size)
-        assert(hair_mask.shape[-1] == size)
-        self.size = size
-        self.orient = orient()
-        self.hair_mask = hair_mask
-
-        transfer_image = transforms.Compose([transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-        if image.min() > -0.01:
-            self.image = transfer_image(image)
-        else:
-            self.image = image
-
-        self.orient_hair, self.confidence_hair = self.orient.calOrientation(self.gengray(self.image))
-        self.hair_mask = hair_mask
-        
-    def gengray(self, image_tensor):
-        if image_tensor.min() < -0.01:
-            fake_image = (image_tensor + 1) / 2.0 * 255
-        else:
-            fake_image = image_tensor * 255
-        gray = 0.299 * fake_image[:, 0, :, :] + 0.587 * fake_image[:, 1, :, :] + 0.144 * fake_image[:, 2, :, :]
-        gray = torch.unsqueeze(gray, 1)
-        return gray
-    
-    def __call__(self, image_syn, hair_mask_syn, sampled_mask = None):
-        assert(image_syn.shape[-1] == self.size)
-        assert(hair_mask_syn.shape[-1] == self.size)
-
-        loss = 0
-        response = F.conv2d(self.gengray(image_syn), self.orient.filterKernel, stride=1, padding=8)
-        if sampled_mask is None:
-            target = response * hair_mask_syn * self.hair_mask
-        else:
-            target = response * hair_mask_syn * sampled_mask
-        
-        for k in range(32):
-
-            loss += ((target - self.confidence_hair) * (self.orient_hair == k) * sampled_mask).norm() / self.size / self.size
-            
-        return loss
-class IMSELoss():
-    def __call__(self, img1, img2, mask = None):
-        assert(img1.shape == img2.shape)
-        if mask is None:
-            return (img1 - img2).norm()
-        else:
-            return ((img1 - img2) * mask).norm() / (img1.shape[-1] ** 2)

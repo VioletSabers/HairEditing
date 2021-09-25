@@ -1,8 +1,7 @@
 class cfg:
     size = 1024
-    stage1 = 600
-    class image:
-        resize = 256
+    resize = 256
+    mid_size = 32
 
 
     class rec:
@@ -11,7 +10,7 @@ class cfg:
         lr = 0.05
         w_epochs = 1000
         n_epochs = 500
-        fs_epochs = 1500
+        fs_epochs = 500
         noise = 0.05
         noise_ramp = 0.75
 
@@ -19,21 +18,34 @@ class cfg:
         lamb_mse = 1e-5
         lamb_p = 1e-5
         lamb_noisemse = (1e-5,)
+
+    class stage1:
+        lr = 0.01
+        epochs = 400
+        lamb_mseloss_mid = 0.01
+        lamb_lpipsfaceloss_1024 = 0.1
+        lamb_lpipsloss = 0.1
+        lamb_styleloss = 15000
+        lamb_segmentloss = 0.001
+        lamb_mseloss_32 = 0.001
     
-    class blend:
-        stage1_lr = 0.01
-        noise = 0.05
-        w_epochs = 1000
-        noise_ramp = 0.75
-        step = 2000
+    class stage2:
+        lr = 0.02
+        epochs = 400
         
-        lamb_styleloss = 10
+        lamb_styleloss = 20
         lamb_shapeloss = 0.00001
-        lamb_classifierloss_1 = 0.0001
-        lamb_classifierloss_2 = 0.000001
-        lamb_mseloss = 0.005
-        lamb_orientloss = 0.00001
-        lamb_lpipsloss = 0.5
+        lamb_segmentloss = 0.0001
+        lamb_mseloss_32 = 0.0003
+        lamb_mseloss_1024 = 0.01
+        lamb_orientloss = 0.0001
+        lamb_lpipsloss = 2
+    
+    class stage3:
+        epochs = 400
+        lr = 0.03
+        lamb_mseloss_32 = 0.01
+        lamb_mseloss_1024 = 0.01
         
         
 
@@ -44,3 +56,7 @@ class cfg:
     class styleGAN:
         size = 1024
         dimention = 512
+        noise = 0.005
+        noise_ramp = 0.75
+        step = 2000
+        

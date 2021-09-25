@@ -1,326 +1,239 @@
 
 import sys
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-sys.path.append("./")
+from typing import Tuple
+
 
 import torch
-from networks import StyleGAN2
-from networks import deeplab_xception_transfer
 
 from utils.config import cfg
-from loss.loss import ShapeLoss, StyleLoss, SegLoss, IMSELoss, OrientLoss
-from networks.graphonomy_inference import get_mask, get_3class, get_hairclass, get_target_mask
 
+from loss.loss import LPIPSLoss
+from networks.graphonomy_inference import get_mask, get_3class
+from src.Base import *
 import torch.optim as optim
 from torchvision.utils import save_image
-from utils import optimizer_utils, image_utils
-from datasets.ffhq import process_image
-from loss.loss import LPIPSLoss, OneclassLoss
-import scipy.ndimage
-import numpy as np
-from PIL import Image
-import math
+from utils import image_utils
+from src.faceparsing import Parsing
+
+
 import torch.nn as nn
 from src.faceparsing import Parsing
-from hairstyle import Style
 import genmask
-from src.reconstruction import Reconstruction
 
-def latent_noise(latent, strength):
-    noise = torch.randn_like(latent) * strength
+from utils import image_utils as ImgU
 
-    return latent + noise
-
-def handle(img):
-    img = torch.clamp(img, -1, 1)
-    img = (img + 1.0) / 2.0
-    return img
-
-def save(image_m):
-    image = image_m.data
-    while len(image.shape) < 4:
-        image = image.unsqueeze(0)
-    if image.shape[1] == 3:
-        image_utils.writeImageToDisk(
-            [image], ['temp_image.png'], './results'
-        )
-    else:
-        image_utils.writeMaskToDisk(
-            [image], ['temp_mask.png'], './results'
-        )
-
-
-class Blend:
-    def __init__(self, image_face: torch.Tensor, image_hair: torch.Tensor, mask_face: torch.Tensor, mask_hair: torch.Tensor, F_init, *image_name):
-
+class Blend(BaseClass):
+    def __init__(self, face, hair, target_mask, apperance, *image_name):
+        super(Blend, self).__init__()
         # assert
+        assert(len(face) == 3)
+        assert(len(hair) == 3)
+        image_face, mask_face, F_init = face[0], face[1], face[2]
+        image_hair, mask_hair, H_init = hair[0], hair[1], hair[2]
+        image_face: torch.Tensor
+        mask_face: torch.Tensor
+        F_init: torch.Tensor
+
+        image_hair: torch.Tensor
+        mask_hair: torch.Tensor
+        H_init: torch.Tensor
+
+        target_mask: torch.Tensor
+
         assert(image_face.shape == (1, 3, cfg.size, cfg.size))
         assert(image_hair.shape == (1, 3, cfg.size, cfg.size))
         assert(mask_face.shape == (1, 3, cfg.size, cfg.size))
         assert(mask_hair.shape == (1, 3, cfg.size, cfg.size))
+        assert((target_mask is None) or (target_mask.shape == (1, 3, cfg.size, cfg.size)))
 
-        insize = cfg.size                       # 1024
-        outsize = cfg.image.resize              # 256
-
-        # 构建分割网络
-        self.SegNet = deeplab_xception_transfer.deeplab_xception_transfer_projection_savemem(
-            n_classes=20,
-            hidden_layers=128,
-            source_classes=7,
-        )
-        state_dict = torch.load(cfg.modelpath.segment)
-        self.SegNet.load_source_model(state_dict)
-        self.SegNet = nn.DataParallel(self.SegNet).cuda()
-        self.SegNet.eval()
-
-        # 构建生成网络
-        pretrain_path = cfg.modelpath.styleGAN2
-        self.G = StyleGAN2.Generator(cfg.styleGAN.size, cfg.styleGAN.dimention)
-        self.G.load_state_dict(torch.load(pretrain_path)["g_ema"], strict=False)
-        self.G = nn.DataParallel(self.G).cuda()
-        self.G.eval()
-
-        # 构建损失函数
-
-        self.downsample = nn.DataParallel(nn.Upsample(scale_factor=outsize / insize, mode='bilinear')).cuda() #1024 to 256
-        self.upsample = nn.DataParallel(nn.Upsample(scale_factor=insize / outsize, mode='bilinear')).cuda() #256 to 1024
-
-        self.lpipsloss = LPIPSLoss(in_size=insize, out_size=outsize)
-
-        self.shapeloss = ShapeLoss()
-        self.styleloss = nn.DataParallel(StyleLoss()).cuda()
-        self.segloss = SegLoss()
-        self.mseloss = nn.MSELoss(reduction='mean')
+        mid_size = cfg.mid_size              # 32
+        self.mid_size = mid_size
+        self.lpipsloss = LPIPSLoss(in_size=1024, out_size=256)
 
         # 类属性处理
-        self.mask_face, self.mask_hair = mask_face, mask_hair
-        self.image_face, self.image_hair = image_face, image_hair
-        self.mask_face_F, self.mask_face_H = mask_face[:,2,:,:].unsqueeze(1), mask_face[:,0,:,:].unsqueeze(1)
-        self.mask_hair_F, self.mask_hair_H = mask_hair[:,2,:,:].unsqueeze(1), mask_hair[:,0,:,:].unsqueeze(1)
+        self.mask_face_1024, self.mask_hair_1024 = mask_face, mask_hair
+        self.image_face_1024, self.image_hair_1024 = image_face, image_hair
+        self.mask_face_F1024, self.mask_face_H1024 = ImgU.erosion(mask_face[:,2,:,:].unsqueeze(1), iteration=8), ImgU.erosion(mask_face[:,0,:,:].unsqueeze(1), iteration=8)
+        self.mask_hair_F1024, self.mask_hair_H1024 = ImgU.erosion(mask_hair[:,2,:,:].unsqueeze(1), iteration=8), ImgU.erosion(mask_hair[:,0,:,:].unsqueeze(1), iteration=8)
         
-        self.image_face_d, self.image_hair_d = self.downsample(self.image_face), self.downsample(self.image_hair)
-        self.mask_face_Fd, self.mask_hair_Hd = self.downsample(self.mask_face_F), self.downsample(self.mask_hair_H)
-        self.mask_hair_Fd = self.downsample(self.mask_hair_F)
-
+        self.image_face_256, self.image_hair_256 = self.resample(self.image_face_1024, 1024, 256), self.resample(self.image_hair_1024, 1024, 256)
+        self.mask_face_F256, self.mask_hair_H256 = self.resample(self.mask_face_F1024, 1024, 256), self.resample(self.mask_hair_H1024, 1024, 256)
+        self.mask_hair_F256, self.mask_face_H256 = self.resample(self.mask_hair_F1024, 1024, 256), self.resample(self.mask_face_H1024, 1024, 256)
+        if target_mask is not None:
+            self.mask_target_H1024 = target_mask[:,0,:,:].unsqueeze(0)
+            self.mask_target_F1024 = target_mask[:,2,:,:].unsqueeze(0)
+        else:
+            self.mask_target_H1024 = self.mask_hair_H1024
+            self.mask_target_F1024 = self.mask_face_F1024
+        self.mask_target_H256 = self.resample(self.mask_target_H1024, 1024, 256)
+        self.mask_target_F256 = self.resample(self.mask_target_F1024, 1024, 256)
         self.image_name1 = image_name[0].split('.')[0]
         self.image_name2 = image_name[1].split('.')[0]
         self.task_name = self.image_name1 + '_' + self.image_name2
-        self.F_init = F_init
+        self.F_init_face = F_init
+        self.F_init_hair = H_init
 
         # 图像处理
-        parsing = Parsing(256)
-        self.mask_classifier = parsing.get_Face_Noface(self.downsample(mask_face), self.downsample(mask_hair))
+        if target_mask is not None:
+            bg = ((1 - self.mask_target_H256 - self.mask_target_F256) > 0.5).float()
+            self.mask_segment = torch.cat([bg, self.mask_target_F256, self.mask_target_H256], dim=1)
+        else:
+            parsing = Parsing(cfg.resize)
+            self.mask_segment = parsing.get_Face_Noface(self.resample(mask_face, 1024, 256), self.resample(mask_hair, 1024, 256))
 
-        self.image_hair_style = Style(image_hair, mask_hair)
+            self.mask_segment[0,1,:,:] = self.mask_target_F256 * (1-self.mask_target_H256)
+            self.mask_segment[0,2,:,:] = self.mask_target_H256
 
-        self.hair_target_mask = self.image_hair_style.get_importantOrientation()
-        self.hair_target_mask = torch.tensor(scipy.ndimage.binary_dilation(self.hair_target_mask.cpu(), iterations=2)).float().cuda()
-        self.hair_target_mask = self.hair_target_mask * self.mask_hair_H
-        self.hair_target_mask = self.hair_target_mask.data
-        self.hair_target_mask.requires_grad = False
+            self.mask_segment = torch.cat([self.mask_segment, parsing.get_NoHair(self.mask_target_F256, self.mask_target_H256)], dim=1)
 
-        self.hair_target_image = self.hair_target_mask * image_hair
-        self.mask_classifier[0,1,:,:] = self.mask_face_Fd * (1-self.mask_hair_Hd)
-        self.mask_classifier[0,2,:,:] = self.mask_hair_Hd
 
-        self.mask_classifier = torch.cat([self.mask_classifier, parsing.get_NoHair(self.mask_hair_Fd, self.mask_hair_Hd)], dim=1)
+        self.mask_hair_Hmid = self.resample(self.mask_hair_H1024, 1024, mid_size)
+        self.mask_face_Fmid = self.resample(self.mask_face_F1024, 1024, mid_size)
 
-    def initnoise(self, latent_in_m: torch.Tensor, noises_m):
-        n_mean_latent = 10000
+    def latent_noise(self, latent, strength):
+        noise = torch.randn_like(latent) * strength
+        return latent + noise
+    
+    def save_log(self, e, loss, syn_img, predictions=None):
         with torch.no_grad():
-            noise_sample = torch.randn(n_mean_latent, 512).cuda()
-            latent_out = self.G.module.style(noise_sample)
-            latent_out: torch.Tensor
-            
-            latent_mean = latent_out.mean(0)
-            latent_std = ((latent_out - latent_mean).pow(2).sum() / n_mean_latent) ** 0.5
-        if latent_in_m is None:
-            
-            latent_in = latent_mean.detach().clone().unsqueeze(0).repeat(self.image_face.shape[0], 1)
-            latent_in = latent_in.unsqueeze(1).repeat(1, self.G.module.n_latent, 1)
-            latent_in: torch.Tensor
-
-            latent_in.requires_grad = True
-        else:
-            latent_in = latent_in_m
-            latent_in.requires_grad = True
-        
-        if noises_m is None:
-
-            noises_single = self.G.module.make_noise()
-            noises = []
-            for noise in noises_single:
-                noises.append(noise.repeat(self.image_face.shape[0], 1, 1, 1).normal_())
-            for noise in noises:
-                noise.requires_grad = True
-        else:
-            noises = noises_m
-            for noise in noises:
-                noise.requires_grad = True
-        self.latent_std = latent_std
-        return latent_in, noises
-
+            print("\riter{}: loss -- {}".format(e, loss.item()))
+            save_image(ImgU.handle(syn_img), "results/" + self.task_name + '/' + "recface_{}.png".format(e))
+            if predictions is not None:
+                mask_final = get_3class(predictions)
+                image_utils.writeImageToDisk(
+                    [mask_final.clone()], [f'recmask_{str(e)}.png'], './results/' + self.task_name
+                )
+    
     def __call__(self, latent_in_m=None, noises_m=None):
+        
+        print('start stage 1')
+        latent_in, noises, latent_std = self.initnoise(latent_in_m, noises_m)
 
-        print('start recface')
-        latent_in, noises = self.initnoise(latent_in_m, noises_m)
-
-        bias = torch.zeros(1, 3, 1024, 1024).float().cuda()
-        bias.requires_grad = True
-
-        opt = optim.Adam([latent_in] + noises, lr=cfg.blend.stage1_lr, betas=(0.9, 0.999), eps=1e-8)
-
-        for e in range(cfg.blend.w_epochs):
+        opt = optim.Adam([latent_in] + noises, lr=cfg.stage1.lr, betas=(0.9, 0.999), eps=1e-8)
+        for e in range(0, cfg.stage1.epochs):
             print(f"\rEpoch {e}", end="")
             opt.zero_grad()
-            noise_strength = self.latent_std * cfg.blend.noise * max(0, 1 - e / cfg.blend.step / cfg.blend.noise_ramp) ** 2
-            latent_n = latent_noise(latent_in, noise_strength.item())
-            if e == cfg.stage1:
-                with torch.no_grad():
-                    F, _ = self.G.module.get_layerout(32)
-                    downsample32 = nn.Upsample(scale_factor=32/256)
-                    HM32 = (downsample32(HM) < 0.5).float()
-                    F = HM32 * self.F_init + (1 - HM32) * F
-                    S = latent_in
-                opt = optim.Adam([F, S, bias] + noises, lr=cfg.blend.stage1_lr, betas=(0.9, 0.999), eps=1e-8)
-                
-            if e < cfg.stage1:
-                syn_img, _ = self.G([latent_n], input_is_latent=True, noise=noises)
-                syn_img = syn_img 
-                self.syn_img = syn_img.data
-                syn_img_d = self.downsample(syn_img)
+            noise_strength = latent_std * cfg.styleGAN.noise * max(0, 1 - e / cfg.styleGAN.step / cfg.styleGAN.noise_ramp) ** 2
+            latent_n = self.latent_noise(latent_in, noise_strength.item())
+            syn_img, _ = G([latent_n], input_is_latent=True, noise=noises)
+            syn_img_d = self.resample(syn_img, 1024, 256)
+            layer_out32, _ = G.get_layerout(32)
 
-                MASK_F = self.mask_face_F
-                face_lpipsloss = self.lpipsloss(self.image_face, handle(syn_img), MASK_F)
-                face_mseloss = self.mseloss(self.image_face * MASK_F, handle(syn_img) * MASK_F)
-
-                # hair_lpipsloss = self.lpipsloss(self.image_hair, handle(syn_img), self.mask_hair_H)
-                if e < 30 or e % 100 == 0:
-                    
-                    predictions, HM, FM = get_mask(self.SegNet, syn_img_d)
-                    HM, FM = HM.unsqueeze(0).float(), FM.unsqueeze(0).float()
-                    
-                    classifier_loss = self.segloss(get_3class(predictions), self.mask_classifier)
-                    HM_1024 = self.upsample(HM)
-                    hair_styleloss = self.styleloss(self.image_hair, handle(syn_img), self.mask_hair_H, HM_1024)
-                else:
-                    classifier_loss = 0
-                    hair_styleloss = 0
+            if e < 150:
+                predictions, HM, FM = get_mask(SegNet, syn_img_d)
+                HM, FM = HM.unsqueeze(0).float(), FM.unsqueeze(0).float()
                 
-                loss = face_lpipsloss + cfg.blend.lamb_styleloss * hair_styleloss +\
-                        (cfg.blend.lamb_classifierloss_1) * classifier_loss
+                segment_loss = segloss(get_3class(predictions), self.mask_segment)
+                HM_1024 = self.resample(HM, 256, 1024)
+                loss = cfg.stage1.lamb_segmentloss * segment_loss 
             else:
-                syn_img = self.G.module.mid_start(F, S, noises, None)
-                syn_img = syn_img + bias.detach()
-                self.syn_img = syn_img.data
-                syn_img_d = self.downsample(syn_img)
-
-                MASK_F = self.mask_face_F * (1 - self.upsample(HM))
-                
-                face_lpipsloss = self.lpipsloss(self.image_face, handle(syn_img), MASK_F)
-                face_mseloss = self.mseloss(self.image_face * MASK_F, handle(syn_img - bias.detach() + bias) * MASK_F)
-
-                # hair_lpipsloss = self.lpipsloss(self.image_hair, handle(syn_img), self.mask_hair_H)
-                if e % 100 == 0:
-                    
-                    predictions, HM, FM = get_mask(self.SegNet, syn_img_d)
-                    HM, FM = HM.unsqueeze(0).float(), FM.unsqueeze(0).float()
-                    
-                    classifier_loss = self.segloss(get_3class(predictions), self.mask_classifier)
-                else:
-                    classifier_loss = 0
-                HM_1024 = self.upsample(HM)
-                hair_styleloss = self.styleloss(self.image_hair, handle(syn_img), self.mask_hair_H, HM_1024)
-                loss = face_lpipsloss + cfg.blend.lamb_mseloss * face_mseloss +\
-                        (cfg.blend.lamb_classifierloss_2) * classifier_loss +\
-                        (cfg.blend.lamb_styleloss) * hair_styleloss
-            
-
+                hair_styleloss = styleloss(self.image_hair_1024, ImgU.handle(syn_img), self.mask_hair_H1024, HM_1024)
+                hair_mseloss32 = mseloss(layer_out32 * self.mask_hair_Hmid, self.F_init_hair[self.mid_size][0] * self.mask_hair_Hmid)
+                loss = cfg.stage1.lamb_styleloss * hair_styleloss + cfg.stage1.lamb_mseloss_32 * hair_mseloss32
             loss.backward()
             opt.step()
-
             if (e + 1) % 100 == 0:
-                print("\riter{}: loss -- {}".format(e + 1, loss.item()))
-                save_image(handle(syn_img), "results/" + self.task_name + '/' + "recface_{}.png".format(e + 1))
-                if e > cfg.stage1:      
-                    mask_final = get_3class(predictions)
-                    image_utils.writeImageToDisk(
-                        [mask_final.clone()], [f'recmask_{str(e+1)}.png'], './results/' + self.task_name
-                    )
+                self.save_log(e + 1, loss, syn_img, predictions)
+        if cfg.stage1.epochs != 0:
+            F = layer_out32.data
+            F.requires_grad = True
+            S = latent_in
+            S.requires_grad = True
 
-        return latent_in, noises
+            opt = optim.Adam([F, S] + noises, lr=cfg.stage1.lr, betas=(0.9, 0.999), eps=1e-8)
+      
+        if cfg.stage1.epochs != 0:
+            torch.save(F, './results/' + self.task_name + '/blend_stage1_F.pth')
+            torch.save(S, './results/' + self.task_name + '/blend_stage1_S.pth')
+        else:
+            with torch.no_grad():
+                F = torch.load('./results/' + self.task_name + '/blend_stage1_F.pth')
+                S = torch.load('./results/' + self.task_name + '/blend_stage1_S.pth')
+                syn_img = G.mid_start(F, S, noises, None)
+                syn_img_d = self.resample(syn_img, 1024, 256)
+                predictions, HM, FM = get_mask(SegNet, syn_img_d)
+                HM, FM = HM.unsqueeze(0).float(), FM.unsqueeze(0).float()
+                
+                HM_1024 = self.resample(HM, 256, 1024)
+
+
+        MASK_F_32 = self.resample(FM, 256, self.mid_size) * self.mask_face_Fmid
+        F = (F * (1 - MASK_F_32) + self.F_init_face[self.mid_size][0] * MASK_F_32).data
+        S = S.data
+        F.requires_grad = True
+        S.requires_grad = True
+        opt = optim.Adam([F, S] + noises, lr=cfg.stage1.lr, betas=(0.9, 0.999), eps=1e-8)
+        print('start stage 2')
+        for e in range(cfg.stage1.epochs, cfg.stage1.epochs + cfg.stage2.epochs):
+            print(f"\rEpoch {e}", end="")
+            opt.zero_grad()
+            noise_strength = latent_std * cfg.styleGAN.noise * max(0, 1 - e / cfg.styleGAN.step / cfg.styleGAN.noise_ramp) ** 2
+            latent_n = self.latent_noise(latent_in, noise_strength.item())
+            MASK_F = self.resample(FM, 256, 1024) * self.mask_face_F1024
+            MASK_H = self.resample(HM, 256, 1024) * self.mask_hair_H1024
+            syn_img = G.mid_start(F, S, noises, None)
+            face_lpipsloss = self.lpipsloss(ImgU.handle(syn_img), self.image_face_1024, MASK_F)
+            hair_lpipsloss = self.lpipsloss(ImgU.handle(syn_img), self.image_hair_1024, MASK_H)
+            loss = face_lpipsloss + hair_lpipsloss + \
+                cfg.stage2.lamb_mseloss_1024 * mseloss(ImgU.handle(syn_img) * MASK_F, self.image_face_1024 * MASK_F)
+            loss.backward()
+            opt.step()
+            if (e + 1) % 100 == 0:
+                self.save_log(e+1, loss, syn_img, predictions)
+        return ImgU.handle(syn_img)
+
+    def blend_final(self, F_final, S_final):
+        print('start stage 3')
+        latent_in, noises, latent_std = self.initnoise(None, None)
+        # latent_in = S_final.data
+        # latent_in.requires_grad = True
+        opt = optim.Adam([latent_in] + noises, lr=cfg.stage3.lr, betas=(0.9, 0.999), eps=1e-8)
+        for e in range(cfg.stage1.epochs + cfg.stage2.epochs, cfg.stage1.epochs + cfg.stage2.epochs +cfg.stage3.epochs):
+            print(f"\rEpoch {e}", end="")
+            opt.zero_grad()
+            noise_strength = latent_std * cfg.styleGAN.noise * max(0, 1 - e / cfg.styleGAN.step / cfg.styleGAN.noise_ramp) ** 2
+            latent_n = self.latent_noise(latent_in, noise_strength.item())
+            syn_img, _ = G([latent_n], input_is_latent=True, noise=noises)
+            layer_out32, _ = G.get_layerout(32)
+
+            MASK_H_32 = self.resample(self.mask_target_H1024, 1024, self.mid_size)
+            hair_mseloss32 = mseloss(layer_out32 * MASK_H_32, F_final[self.mid_size][0] * MASK_H_32)
+            loss = hair_mseloss32
+            loss.backward()
+            opt.step()
+            if (e + 1) % 100 == 0:
+                self.save_log(e+1, loss, syn_img, None)
+        
+        F, _ = G.get_layerout(32)
+        S = latent_in
+        F = F.data
+        F.requires_grad = True
+        S = S.data
+        S.requires_grad = True
+        syn_img_S = syn_img.data
+
+        opt = optim.Adam([F, S] + noises, lr=cfg.stage3.lr, betas=(0.9, 0.999), eps=1e-8)
+        for e in range(cfg.stage1.epochs + cfg.stage2.epochs + cfg.stage3.epochs, cfg.stage1.epochs + cfg.stage2.epochs + cfg.stage3.epochs * 2):
+            print(f"\rEpoch {e}", end="")
+            opt.zero_grad()
+            noise_strength = latent_std * cfg.styleGAN.noise * max(0, 1 - e / cfg.styleGAN.step / cfg.styleGAN.noise_ramp) ** 2
+
+            syn_img = G.mid_start(F, S, noises, None)
+            MASK_H = self.mask_target_H1024
+            MASK_F = self.mask_target_F1024 * (1 - MASK_H)
+            hair_mseloss = self.lpipsloss(ImgU.handle(syn_img) * MASK_H, ImgU.handle(syn_img_S) * MASK_H)
+            face_mseloss = mseloss(ImgU.handle(syn_img) * MASK_F, self.image_face_1024 * MASK_F)
+            loss = cfg.stage3.lamb_mseloss_1024 * hair_mseloss + cfg.stage3.lamb_mseloss_1024 * face_mseloss
+            if (e + 1) % 100 == 0:
+                self.save_log(e+1, loss, syn_img, None)
+            loss.backward()
+            opt.step()
     def get_layerout(self, size=32):
-        return self.G.module.get_layerout(size)
+        return G.get_layerout(size)
     
     def get_synimg(self):
         return self.syn_img
     
     def get_synmask(self):
         return get_3class(self.predictions)
-
-if __name__ == '__main__':
-
-    # image_name = ["0.jpg", "00018.jpg", "00761.jpg", "01012.jpg", "02602.jpg", "08244.jpg", "10446.jpg", "46826.jpg", "52364.jpg", "67172.jpg"]
-
-    # image1 = sys.argv[1]
-    # image2 = sys.argv[2]
-    image1 = "0.jpg"
-    image2 = "00018.jpg"
-    raw = "data/images"
-    mask = "data/masks"
-
-    if not os.path.exists(mask + '/' + image1.split('.')[0] + '.png'):
-        genmask.gen(raw + '/' + image1, mask)
-    if not os.path.exists(mask + '/' + image2.split('.')[0] + '.png'):
-        genmask.gen(raw + '/' + image2, mask)
-
-    if not os.path.exists('./results'):
-        os.mkdir('./results')
-    file = os.listdir('./results')
-
-    # if ((image1.split('.')[0] + '_' + image2.split('.')[0]) in file):
-    #     continue
-    image_files = image_utils.getImagePaths(raw, mask, image1, image2)
-    print('image face = ', image1)
-    print('image hair = ', image2)
-    I_1, M_1, HM_1, H_1, FM_1, F_1 = process_image(
-        image_files['I_1_path'], image_files['M_1_path'], size=1024, normalize=1)
-
-    I_2, M_2, HM_2, H_2, FM_2, F_2 = process_image(
-        image_files['I_2_path'], image_files['M_2_path'], size=1024, normalize=1)
-
-
-    I_1, M_1, HM_1, H_1, FM_1, F_1 = optimizer_utils.make_cuda(
-        [I_1, M_1, HM_1, H_1, FM_1, F_1])
-    I_2, M_2, HM_2, H_2, FM_2, F_2 = optimizer_utils.make_cuda(
-        [I_2, M_2, HM_2, H_2, FM_2, F_2])
-
-    I_1, M_1, HM_1, H_1, FM_1, F_1= image_utils.addBatchDim(
-        [I_1, M_1, HM_1, H_1, FM_1, F_1])
-    I_2, M_2, HM_2, H_2, FM_2, F_2 = image_utils.addBatchDim(
-        [I_2, M_2, HM_2, H_2, FM_2, F_2])
-    
-    I_1, I_2 = handle(I_1), handle(I_2)
-    if os.path.exists('./results/' + image1.split('.')[0] + '/param/F.pth'):
-        F = torch.load('./results/' + image1.split('.')[0] + '/param/F.pth')
-    else:
-        reconstruction = Reconstruction()
-        F, S = reconstruction.rec(I_1, image1.split('.')[0])
-    
-    
-    task_name = image1.split('.')[0] + '_' + image2.split('.')[0]
-    if not os.path.exists('./results/' + task_name):
-        os.mkdir('./results/' + task_name)
-
-    blend_name = image1.split('.')[0] + '_' + image2.split('.')[0]
-    
-    image_utils.writeImageToDisk(
-            [I_1, I_1 * FM_1, I_2, I_2 * HM_2,  I_1 * FM_1 * (1 - HM_2) + I_2 * HM_2], ['Face_image.png', 'Face_select.png', 'Hair_image.png', 'Hair_select.png', 'Target.png'], './results/' + blend_name
-        )
-
-    recface = Blend(I_1, I_2, M_1, M_2, F, image1, image2)
-    
-    latent_in_1, noises_1 = recface()
-
-    print('ok')

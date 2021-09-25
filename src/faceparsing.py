@@ -30,7 +30,7 @@ class Parsing:
         HM_face = face_mask[0][0]
 
         FM_delate = scipy.ndimage.binary_dilation(
-            FM_face.cpu(), iterations=15
+            FM_face.cpu(), iterations=5
         )
 
         HM_delate = scipy.ndimage.binary_dilation(
@@ -39,7 +39,9 @@ class Parsing:
 
         FM_delate = torch.from_numpy(FM_delate).float().cuda()
         HM_delate = torch.from_numpy(HM_delate).float().cuda()
-        bg = (FM_delate - FM_face) * (1 - HM_delate)
+        # bg = (FM_delate - FM_face) * (1 - HM_delate)
+        bg = torch.ones_like(FM_face) - FM_delate
+
 
 
         return torch.cat([torch.zeros((1, 1, self.size, self.size)).cuda(),
@@ -59,15 +61,15 @@ class Parsing:
         HM_hair = hair_mask[0][0]
         FM_hair = face_mask[0][0]
         HM_delate = scipy.ndimage.binary_dilation(
-            HM_hair.cpu(), iterations=5
+            HM_hair.cpu(), iterations=20
         )
 
         FM_delate = scipy.ndimage.binary_dilation(
-            FM_hair.cpu(), iterations=5
+            FM_hair.cpu(), iterations=20
         )
         HM_delate = torch.from_numpy(HM_delate).float().cuda()
         FM_delate = torch.from_numpy(FM_delate).float().cuda()
-        bg = ((torch.ones_like(HM_hair) - HM_hair - FM_delate) > 0.5).unsqueeze(0).unsqueeze(0)
+        bg = ((torch.ones_like(HM_hair) - HM_delate - FM_delate) > 0.5).unsqueeze(0).unsqueeze(0)
         return bg
 
 if __name__ == '__main__':

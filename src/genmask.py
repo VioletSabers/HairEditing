@@ -51,5 +51,5 @@ def gen(root_path, mask_path):
     print('genmask ' + root_path.split('/')[-1] + ' ok')
 
 if __name__ == '__main__':
-    image = '0.jpg'
-    gen('./data/images/' + image)
+    image = 'dk.jpg'
+    gen('./data/images/' + image, './data/masks')

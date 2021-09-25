@@ -13,15 +13,15 @@ from torchvision.utils import save_image
 import torch.nn as nn
 import os
 import warnings
+from src.Base import *
 warnings.filterwarnings("ignore")
 
 class Reconstruction:
     def __init__(self):
         self.REC_S1 = ImageReconstruction()
         self.lpipsloss = LPIPSLoss(in_size=1024, out_size=256)
-        self.mseloss = nn.MSELoss(reduction="mean")
     def rec(self, image, image_name):
-
+        print(f"\r\nstart reconstruction -- {image_name} ")
         latent_in, noises = self.REC_S1.reconstruction(image, image_name)
         print('\rstart reconstruction stage2: ', image_name)
         F_init, skip = self.REC_S1.get_layerout(size=32)
@@ -43,10 +43,10 @@ class Reconstruction:
             optim_FS.zero_grad()
             loss = 0
 
-            syn_img = self.REC_S1.G.module.mid_start(F, S, noises, skip.detach())
+            syn_img = G.mid_start(F, S, noises, skip.detach())
             syn_img = (syn_img + 1.0) / 2.0
-            loss += self.lpipsloss(syn_img, image) + cfg.I2SLoss.lamb_mse * self.mseloss(syn_img, image)
-            loss += self.mesloss(F, F_init.detach())
+            loss += self.lpipsloss(syn_img, image) + cfg.I2SLoss.lamb_mse * mseloss(syn_img, image)
+            loss += mseloss(F, F_init.detach())
             if (epoch+1) % 500 == 0:
                 print("\riter{}: loss -- {}".format(epoch + 1, loss.item()))
                 if not os.path.exists("results/" + image_name + "/rec_stage2"):
@@ -56,8 +56,11 @@ class Reconstruction:
             loss.backward()
             optim_FS.step()
             optim_FS.zero_grad()
-        torch.save(F, path+'F.pth')
-        return F, S
+        F_all = {}
+        for size in [32, 64, 128, 256, 512,1024]:            
+            F_all[size] = self.REC_S1.get_layerout(size)
+        torch.save(F_all, path+'F_all.pth')
+        return F_all, S
 
 
         
