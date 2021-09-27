@@ -1,7 +1,7 @@
 class cfg:
     size = 1024
     resize = 256
-    mid_size = 32
+    mid_size = 64
 
 
     class rec:
@@ -27,7 +27,7 @@ class cfg:
         lamb_lpipsloss = 0.1
         lamb_styleloss = 15000
         lamb_segmentloss = 0.001
-        lamb_mseloss_32 = 0.001
+        lamb_mseloss_mid = 0.001
     
     class stage2:
         lr = 0.02
@@ -42,10 +42,10 @@ class cfg:
         lamb_lpipsloss = 2
     
     class stage3:
-        epochs = 400
-        lr = 0.03
-        lamb_mseloss_32 = 0.01
-        lamb_mseloss_1024 = 0.01
+        epochs = 500
+        lr = 0.2
+        lamb_mseloss_mid = 0.05
+        lamb_mseloss_1024 = 0.0001
         
         
 
