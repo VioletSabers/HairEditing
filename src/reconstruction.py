@@ -21,9 +21,9 @@ class Reconstruction:
         self.REC_S1 = ImageReconstruction()
         self.lpipsloss = LPIPSLoss(in_size=1024, out_size=256)
     def rec(self, image, image_name):
-        print(f"\r\nstart reconstruction -- {image_name} ")
+        print(f"\r\nStart Reconstruction -- {image_name} ")
         latent_in, noises = self.REC_S1.reconstruction(image, image_name)
-        print('\rstart reconstruction stage2: ', image_name)
+        print('\rStage2: ', image_name)
         F_init, skip = self.REC_S1.get_layerout(size=32)
         for i in range(len(noises)):
             noises[i] = noises[i].detach()
@@ -47,7 +47,7 @@ class Reconstruction:
             syn_img = (syn_img + 1.0) / 2.0
             loss += self.lpipsloss(syn_img, image) + cfg.I2SLoss.lamb_mse * mseloss(syn_img, image)
             loss += mseloss(F, F_init.detach())
-            if (epoch+1) % 500 == 0:
+            if (epoch+1) % 200 == 0:
                 print("\riter{}: loss -- {}".format(epoch + 1, loss.item()))
                 if not os.path.exists("results/" + image_name + "/rec_stage2"):
                     os.mkdir("results/" + image_name + "/rec_stage2")

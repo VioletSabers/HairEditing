@@ -27,7 +27,7 @@ class ImageReconstruction:
         self.noiseloss = I2SNoiseLoss()
     
     def reconstruction(self, image, image_name):
-        print('\rstart reconstruction stage1: ', image_name)
+        print('\rStage1: ', image_name + '.jpg')
         if os.path.exists("results/" + image_name.split('.')[0]) == False:
             os.mkdir("results/" + image_name.split('.')[0])
         if os.path.exists("results/" + image_name.split('.')[0] + '/rec_stage1') == False:
@@ -67,7 +67,7 @@ class ImageReconstruction:
             loss = self.lpipsloss(syn_img, image) + cfg.I2SLoss.lamb_mse * mseloss(syn_img, image)
             loss.backward()
             w_opt.step()
-            if (e + 1) % 500 == 0:
+            if (e + 1) % cfg.rec.print_epoch == 0:
                 print("\riter{}: loss -- {}".format(e + 1, loss.item()))
                 save_image(syn_img.clamp(0, 1), "results/" + image_name.split('.')[0] + '/rec_stage1/' + "rec_{}.png".format(e + 1))
 
@@ -82,7 +82,7 @@ class ImageReconstruction:
             loss = self.noiseloss(syn_img, image) + cfg.I2SLoss.lamb_mse * mseloss(syn_img, image)
             loss.backward()
             n_opt.step()
-            if (e + 1) % 500 == 0:
+            if (e + 1) % cfg.rec.print_epoch == 0:
                 print("\riter{}: loss -- {}".format(e + 1, loss.item()))
                 save_image(syn_img.clamp(0, 1), "results/" + image_name.split('.')[0] + '/rec_stage1/' + "rec_{}.png".format(e + 1))
 
