@@ -3,15 +3,16 @@ import os
 import torch.nn as nn
 sys.path.append("./")
 from networks import StyleGAN2
-from utils.untils import image_reader
+from utils_c.untils import image_reader
 import torch
 import torch.optim as optim
 from torchvision.utils import save_image
 import os
 from copy import deepcopy
-from utils.config import cfg
+from utils_c.config import cfg
 import warnings
 from src.Base import *
+import copy
 warnings.filterwarnings("ignore")
 
 from loss.loss import LPIPSLoss, I2SNoiseLoss
@@ -26,8 +27,9 @@ class ImageReconstruction:
         self.lpipsloss = LPIPSLoss(in_size=1024, out_size=256)
         self.noiseloss = I2SNoiseLoss()
     
-    def reconstruction(self, image, image_name):
+    def reconstruction(self, image, image_name, mask_face, mask_hair, front=False):
         print('\rStage1: ', image_name + '.jpg')
+        
         if os.path.exists("results/" + image_name.split('.')[0]) == False:
             os.mkdir("results/" + image_name.split('.')[0])
         if os.path.exists("results/" + image_name.split('.')[0] + '/rec_stage1') == False:
@@ -56,6 +58,7 @@ class ImageReconstruction:
         w_opt = optim.Adam([latent_in], lr=cfg.rec.lr, betas=(0.9, 0.999), eps=1e-8)
         n_opt = optim.Adam(noises, lr=cfg.rec.lr, betas=(0.9, 0.999), eps=1e-8)
 
+        latent_in_init = copy.deepcopy(latent_in.detach().data)
         # 优化w
         for e in range(cfg.rec.w_epochs):
             print(f"\rEpoch {e}", end="")
@@ -64,12 +67,19 @@ class ImageReconstruction:
             latent_n = latent_noise(latent_in, noise_strength.item())
             syn_img, _ = G([latent_n], input_is_latent=True, noise=noises)
             syn_img = (syn_img + 1.0) / 2.0
-            loss = self.lpipsloss(syn_img, image) + cfg.I2SLoss.lamb_mse * mseloss(syn_img, image)
+            if mask_face is not None:
+                loss_face = self.lpipsloss(syn_img, image, mask_face, True) + cfg.I2SLoss.lamb_mse * mseloss(syn_img * mask_face, image * mask_face)
+                loss_hair = self.lpipsloss(syn_img, image, mask_hair, True) + cfg.I2SLoss.lamb_mse * mseloss(syn_img * mask_hair, image * mask_hair)
+                loss = loss_face + loss_hair
+            else:
+                loss = self.lpipsloss(syn_img, image) #+ cfg.I2SLoss.lamb_mse * mseloss(syn_img, image)
             loss.backward()
             w_opt.step()
             if (e + 1) % cfg.rec.print_epoch == 0:
                 print("\riter{}: loss -- {}".format(e + 1, loss.item()))
                 save_image(syn_img.clamp(0, 1), "results/" + image_name.split('.')[0] + '/rec_stage1/' + "rec_{}.png".format(e + 1))
+            if front:
+                latent_in[9:].data = latent_in_init[9:].data
 
         # 优化noise
         for e in range(cfg.rec.w_epochs, cfg.rec.w_epochs + cfg.rec.n_epochs):

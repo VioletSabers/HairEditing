@@ -2,7 +2,7 @@ import sys
 import os
 
 from numpy import fmax
-from utils import optimizer_utils, image_utils
+from utils_c import optimizer_utils, image_utils
 import torch
 from torchvision.transforms import transforms
 import scipy.ndimage
@@ -61,11 +61,11 @@ class Parsing:
         HM_hair = hair_mask[0][0]
         FM_hair = face_mask[0][0]
         HM_delate = scipy.ndimage.binary_dilation(
-            HM_hair.cpu(), iterations=20
+            HM_hair.cpu(), iterations=10
         )
 
         FM_delate = scipy.ndimage.binary_dilation(
-            FM_hair.cpu(), iterations=20
+            FM_hair.cpu(), iterations=10
         )
         HM_delate = torch.from_numpy(HM_delate).float().cuda()
         FM_delate = torch.from_numpy(FM_delate).float().cuda()

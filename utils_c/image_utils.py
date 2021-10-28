@@ -7,6 +7,7 @@ import os
 from PIL import Image
 import scipy.ndimage
 
+
 def handle(img):
     img = torch.clamp(img, -1, 1)
     img = (img + 1.0) / 2.0

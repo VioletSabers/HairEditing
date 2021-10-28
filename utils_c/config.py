@@ -10,13 +10,13 @@ class cfg:
         lr = 0.05
         w_epochs = 1200
         n_epochs = 400
-        fs_epochs = 1200
+        fs_epochs = 600
         noise = 0.05
         noise_ramp = 0.75
         print_epoch= 400
 
     class I2SLoss:
-        lamb_mse = 1e-5
+        lamb_mse = 0
         lamb_p = 1e-5
         lamb_noisemse = (1e-5,)
 
@@ -27,29 +27,33 @@ class cfg:
         lamb_lpipsfaceloss_1024 = 0.1
         lamb_lpipsloss = 0.1
         lamb_styleloss = 15000
-        lamb_segmentloss = 0.001
-        lamb_mseloss_mid = 0.001
-        epoch_s1 = 100
-        epoch_s2 = 200
+        lamb_segmentloss = 0.01
+        epoch_s1 = 200
+        epoch_s2 = 400
     
     class stage2:
         lr = 0.02
-        epochs = 900
+        epochs = 300
         
         lamb_styleloss = 20
         lamb_shapeloss = 0.00001
         lamb_segmentloss = 0.0001
         lamb_mseloss_32 = 0.0003
-        lamb_mseloss_1024 = 0.01
+        lamb_mseloss_1024 = 0.001
         lamb_orientloss = 0.0001
-        lamb_lpipsloss = 2
+        lamb_lpipsloss = 1
     
     class stage3:
         epochs = 600
-        lr = 0.05
-        lamb_mseloss_mid = 0.05
-        lamb_mseloss_1024 = 0.0005
-        lamb_color = 4e-3
+        lr = 0.02
+        lamb_mseloss_1024 = 0.01
+
+    class stage4:
+        epochs = 1200
+        lr = 0.02
+        lamb_mseloss_mid = 0.01
+        lamb_mseloss_1024 = 0.001
+
         
     class modelpath:
         segment = 'pretrain_model/inference.pth'

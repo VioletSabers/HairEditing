@@ -5,7 +5,7 @@ from typing import List
 import torch.nn as nn
 from loss.custom_loss import prepare_mask, custom_loss
 from networks.VGG16 import VGG16_perceptual
-from utils.config import cfg
+from utils_c.config import cfg
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as transforms
@@ -50,22 +50,31 @@ class LPIPSLoss:
             return loss
         else:
             if mul_mask:
-                syn0, syn1, syn2, syn3 = self.perceptual(syn_img_p * mask_p) 
+                syn0, syn1, syn2, syn3 = self.perceptual(syn_img_p * mask_p)
+                r0, r1, r2, r3 = self.perceptual(img_p * mask_p)
+
+                mask_size = mask_p.shape[-1]
+                per_loss = 0
+                per_loss += self.MSE_loss(syn0, r0)
+                per_loss += self.MSE_loss(syn1, r1)
+                per_loss += self.MSE_loss(syn2, r2)
+                per_loss += self.MSE_loss(syn3, r3)
+                return cfg.I2SLoss.lamb_p * per_loss
             else:
                 syn0, syn1, syn2, syn3 = self.perceptual(syn_img_p) 
-            r0, r1, r2, r3 = self.perceptual(img_p)
+                r0, r1, r2, r3 = self.perceptual(img_p)
 
-            mask_size = mask_p.shape[-1]
-            per_loss = 0
-            mask_layer = F.upsample(mask_p, scale_factor=syn0.shape[-1]/mask_size)
-            per_loss += self.MSE_loss(syn0 * mask_layer, r0 * mask_layer)
-            mask_layer = F.upsample(mask_p, scale_factor=syn1.shape[-1]/mask_size)
-            per_loss += self.MSE_loss(syn1 * mask_layer, r1 * mask_layer)
-            mask_layer = F.upsample(mask_p, scale_factor=syn2.shape[-1]/mask_size)
-            per_loss += self.MSE_loss(syn2 * mask_layer, r2 * mask_layer)
-            mask_layer = F.upsample(mask_p, scale_factor=syn3.shape[-1]/mask_size)
-            per_loss += self.MSE_loss(syn3 * mask_layer, r3 * mask_layer)
-            return cfg.I2SLoss.lamb_p * per_loss
+                mask_size = mask_p.shape[-1]
+                per_loss = 0
+                mask_layer = F.upsample(mask_p, scale_factor=syn0.shape[-1]/mask_size)
+                per_loss += self.MSE_loss(syn0 * mask_layer, r0 * mask_layer)
+                mask_layer = F.upsample(mask_p, scale_factor=syn1.shape[-1]/mask_size)
+                per_loss += self.MSE_loss(syn1 * mask_layer, r1 * mask_layer)
+                mask_layer = F.upsample(mask_p, scale_factor=syn2.shape[-1]/mask_size)
+                per_loss += self.MSE_loss(syn2 * mask_layer, r2 * mask_layer)
+                mask_layer = F.upsample(mask_p, scale_factor=syn3.shape[-1]/mask_size)
+                per_loss += self.MSE_loss(syn3 * mask_layer, r3 * mask_layer)
+                return cfg.I2SLoss.lamb_p * per_loss
 
 class I2SNoiseLoss:
     def __init__(self):

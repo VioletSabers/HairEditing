@@ -59,7 +59,9 @@ def custom_decode_labels(mask, num_images=1, num_classes=20):
 
     face_mask = torch.where(mask == 13, torch.ones_like(mask), torch.zeros_like(mask))
 
-    return hair_mask, face_mask
+    bg_mask = torch.where(mask == 0, torch.ones_like(mask), torch.zeros_like(mask))
+
+    return hair_mask, face_mask, bg_mask
 
 
 def overlay(frame, mask):
@@ -248,9 +250,9 @@ def inference(net, img=None, use_gpu=True):
     # parsing_im = Image.fromarray(vis_res[0])
     # return parsing_im
 
-    hair_mask, face_mask = custom_decode_labels(predictions)
+    hair_mask, face_mask, bg_mask = custom_decode_labels(predictions)
 
-    return outputs_final, hair_mask, face_mask
+    return outputs_final, hair_mask, face_mask, bg_mask
 
     # parsing_im.save(output_path+'/{}.png'.format(output_name))
     # cv2.imwrite(output_path+'/{}_gray.png'.format(output_name), results[0, :, :])
@@ -269,8 +271,8 @@ def get_mask(net, img):
 
     use_gpu = True
 
-    predictions, hair_mask, face_mask = inference(net=net, img=img, use_gpu=use_gpu)
-    return predictions, hair_mask, face_mask
+    predictions, hair_mask, face_mask, bg_mask = inference(net=net, img=img, use_gpu=use_gpu)
+    return predictions, hair_mask, face_mask, bg_mask
 
 def get_3class(predictions):
     pre_sfm = F.softmax(predictions, dim=1)

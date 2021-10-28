@@ -93,12 +93,12 @@ def process_image(img_path, mask_path, size=None, normalize=None):
     mask = transforms.ToTensor()(mask)
 
     # Hair mask + Hair image
-    hair_mask = mask[0, ...]
+    hair_mask = mask[2, ...]
     hair_mask = torch.unsqueeze(hair_mask, axis=0)
     hair_image = img * hair_mask
 
     # Face mask + Face image
-    face_mask = mask[-1, ...]
+    face_mask = mask[1, ...]
     face_mask = torch.unsqueeze(face_mask, axis=0)
     face_image = img * face_mask
 

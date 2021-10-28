@@ -1,4 +1,4 @@
-from utils.config import cfg
+from utils_c.config import cfg
 import torch
 from networks import StyleGAN2
 from networks import deeplab_xception_transfer

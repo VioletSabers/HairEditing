@@ -15,8 +15,8 @@ import pandas as pd
 
 import sys
 sys.path.append('./')
-from utils import optimizer_utils, image_utils
-from utils.config import cfg
+from utils_c import optimizer_utils, image_utils
+from utils_c.config import cfg
 
 # parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
 # parser.add_argument('--image_path', type=str, default='./data/images/67172.jpg', help='Path to image')
