@@ -133,9 +133,8 @@ class Blend(BaseClass):
                 cfg.stage2.lamb_mseloss_1024 * mseloss(ImgU.handle(syn_img) * MASK_H, self.image_hair_1024 * MASK_H)
             loss.backward()
             opt.step()
-
             latent_in.requires_grad = False
-            latent_in[:,9:,:] = latent_in_init[:,9:,:].data
+            latent_in[9:] = latent_in_init[9:].data
             latent_in.requires_grad = True
             if (e + 1) % cfg.print_epoch == 0: 
                 self.save_log(e+1, loss, syn_img, predictions)
@@ -158,12 +157,11 @@ class Blend(BaseClass):
                 cfg.stage3.lamb_mseloss_1024 * mseloss(ImgU.handle(syn_img) * MASK_H, self.image_hair_1024 * MASK_H)
             loss.backward()
             opt.step()
-
             latent_in.requires_grad = False
-            latent_in[:, :9].data = latent_in_init[:, :9].data
+            latent_in[:9] = latent_in_init[:9].data
             latent_in.requires_grad = True
             if (e + 1) % cfg.print_epoch == 0: 
                 self.save_log(e+1, loss, syn_img, predictions)
         F, _ = G.get_layerout(cfg.mid_size)
-        
+        save_image(ImgU.handle(syn_img), "results/" + self.task_name + '/' + "final.png")
         return F, latent_in, ImgU.handle(syn_img)

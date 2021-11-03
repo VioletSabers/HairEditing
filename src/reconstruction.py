@@ -58,7 +58,7 @@ class Reconstruction:
                 optim_FS.step()
                 optim_FS.zero_grad()
         F_all = {}
-        for size in [32, 64, 128, 256, 512, 1024]:            
+        for size in [32, 64, 128, 256, 512,1024]:            
             F_all[size] = self.REC_S1.get_layerout(size)
         torch.save(F_all, path+'F_all.pth')
         return F_all, S

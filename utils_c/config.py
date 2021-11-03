@@ -45,8 +45,8 @@ class cfg:
     
     class stage3:
         epochs = 600
-        lr = 0.02
-        lamb_mseloss_1024 = 0.01
+        lr = 0.005
+        lamb_mseloss_1024 = 0.001
 
     class stage4:
         epochs = 1200
