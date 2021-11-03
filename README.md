@@ -6,9 +6,9 @@
   2. 运行代码：```python3 ./src/main.py 人脸图片 头发图片```
  
  样例：
-  ```python3 ./src/blend.py 0.jpg 00005.png```
-  其中 0.jpg 在```./data/face``` 下
-  00005.png 在```./data/hair``` 下
+  ```python3 ./src/main.py 0.jpg 00005.png```
+  其中 0.jpg 在```./data/face``` 
+  00005.png 在```./data/hair``` 
 
  输出：
  输出位置为：```./results```中
