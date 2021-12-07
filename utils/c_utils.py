@@ -5,6 +5,7 @@ import scipy.ndimage
 import torch
 from torchvision.transforms import transforms
 import os
+import copy
 
 def get_image_basename(x: str): #通过图像路径获得图像名称
 
@@ -63,15 +64,13 @@ def writeMaskToDisk(li, names, dest):
         var = Image.fromarray(var)
         var.save(os.path.join(dest, names[idx]))
 
-def save_img(image_m, path=None, file=None):
-    image = image_m.data
+def save_img(image_m, path=None, file=None, keep=False):
+    image = copy.deepcopy(image_m.detach())
     while len(image.shape) < 4:
         image = image.unsqueeze(0)
-    minn = image_m.min()
-    maxn = image_m.max()
-    if minn < 0:
-        image = image / (maxn - minn)
-        image = image - image.min()
+    
+    if keep == False:
+        image = (image.clamp(-1, 1) + 1) / 2
     
     if path is None:
         path = "./results"

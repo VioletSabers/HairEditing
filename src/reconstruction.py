@@ -29,7 +29,8 @@ class Rec():
             self.encoder = Encoder_RestyleE4E()
         else:
             self.encoder = None
-        self.lpipsloss = LPIPSLoss(in_size=1024, out_size=256)
+        self.lpipsloss_hair = LPIPSLoss(in_size=1024, out_size=256)
+        self.lpipsloss_face = LPIPSLoss(in_size=1024, out_size=256)
         self.Upsample1024_256 = torch.nn.Upsample(scale_factor=256/1024, mode="bilinear")
         self.Upsample256_1024 = torch.nn.Upsample(scale_factor=1024/256, mode="bilinear")
         self.OrientLoss = OrientLoss()
@@ -38,6 +39,7 @@ class Rec():
     def rec(self, image_1024: torch.Tensor, image_256: torch.Tensor, mask_face, mask_hair, image_name: str):
         
         print(f"\rStart Reconstruction -- {image_name} ")
+
         if cfg.rec.restyle4e:
             latent_in = self.encoder.get_latent_code(image_256, get_image_basename(image_name))
             latent_in = torch.tensor(latent_in[0][-1]).unsqueeze(0).cuda()
@@ -45,8 +47,9 @@ class Rec():
             latent_in, noises, latent_std = G.initcode(latent_in)
         else:
             latent_in, noises, latent_std = G.initcode()
-    
+
         syn_img, _ = G([latent_in], input_is_latent=True, noise=noises)
+        print('get restyle e4e result, save to init_rec.png')
         save_img(syn_img, "./results/" + get_image_basename(image_name), "init_rec.png")
         
         # w = latent_in[:, 0, :].detach()
@@ -55,38 +58,31 @@ class Rec():
         w_opt = optim.Adam([latent_in], lr=cfg.rec.lr, betas=(0.9, 0.999), eps=1e-8)
         
         # 优化w
-        total_epoch = 0
-        limit = 0.90
+        mask_hair = (mask_hair > 0).float()
+        mask_face = (mask_face > 0).float()
+        # hair_select = torch.zeros(1, 1, 1024, 1024).cuda()
+       
+        for e in range(cfg.rec.w_epochs):
 
-        for num_e in range(5):
-            for e in range(total_epoch, total_epoch + cfg.rec.w_epochs):
-
-                print(f"\rEpoch {e}/{5 * cfg.rec.w_epochs}", end="")
-                
-                w_opt.zero_grad()
-                    
-                noise_strength = latent_std * cfg.rec.noise * max(0, 1 - e / cfg.rec.step / cfg.rec.noise_ramp) ** 2
-                latent_n = latent_noise(latent_in, noise_strength.item())
-                syn_img, _ = G([latent_n], input_is_latent=True, noise=noises)
-                syn_img = (syn_img + 1.0) / 2.0
-
-                hair_lpipsloss = self.lpipsloss(syn_img, change_img_TO01(image_1024), mask_hair)
-                face_lpipsloss = self.lpipsloss(syn_img, change_img_TO01(image_1024), mask_face)
-                loss = cfg.rec.lamb_lpipsloss * (hair_lpipsloss + face_lpipsloss) +\
-                    cfg.rec.lamb_mseloss_1024 * mseloss(syn_img * mask_hair, change_img_TO01(image_1024) * mask_hair) +\
-                    cfg.rec.lamb_mseloss_1024 * mseloss(syn_img * mask_face, change_img_TO01(image_1024) * mask_face)
-
-                loss.backward()
-                w_opt.step()
-                if (e + 1) % cfg.rec.print_epoch == 0:
-                    print("\riter{}: loss -- {}".format(e + 1, loss.item()))
-                    save_img(syn_img, "results/" + image_name.split('.')[0] + '/rec_stage1', "rec_{}.png".format(e + 1))
-            total_epoch += cfg.rec.w_epochs
-
+            print(f"\rEpoch {e}/{cfg.rec.w_epochs}", end="")
             
-        save_img(syn_img, "results/" + image_name.split('.')[0], "rec_stage1_final.png")
-        
-        return latent_in, syn_img
+            w_opt.zero_grad()
+                
+            noise_strength = latent_std * cfg.rec.noise * max(0, 1 - e / cfg.rec.step / cfg.rec.noise_ramp) ** 2
+            latent_n = latent_noise(latent_in, noise_strength.item())
+            syn_img, _ = G([latent_n], input_is_latent=True, noise=noises)
+
+            hair_lpipsloss = self.lpipsloss_hair(syn_img, image_1024, mask_hair)
+            face_lpipsloss = self.lpipsloss_face(syn_img, image_1024, mask_face)
+            loss = cfg.rec.lamb_lpipsloss_hair * hair_lpipsloss +\
+                cfg.rec.lamb_lpipsloss_face * face_lpipsloss +\
+                cfg.rec.lamb_mseloss_1024_hair * mseloss(syn_img * mask_hair, image_1024 * mask_hair) +\
+                cfg.rec.lamb_mseloss_1024_face * mseloss(syn_img * mask_face, image_1024 * mask_face)
+            loss.backward()
+            w_opt.step()
+            if (e + 1) % cfg.rec.print_epoch == 0:
+                print("\riter{}: loss -- {}".format(e + 1, loss.item()))
+                save_img(syn_img, "results/" + image_name.split('.')[0] + '/rec', "rec_{}.png".format(e + 1))
 
         # noises_stage1 = []
         # for noise in noises:
@@ -106,8 +102,8 @@ class Rec():
         # predictions, HM, FM, BM = get_mask(SegNet, syn_img_d)
         # HM, FM = HM.unsqueeze(0).float(), FM.unsqueeze(0).float()
 
-        # HM_1024 = self.Upsample256_1024(HM)
-        # FM_1024 = self.Upsample256_1024(FM)
+        # HM_1024 = (self.Upsample256_1024(HM) > 0).float()
+        # FM_1024 = (self.Upsample256_1024(FM) > 0).float()
         
         # # 优化style
         # for e in range(total_epoch, total_epoch + cfg.rec.style_epochs):
@@ -118,7 +114,6 @@ class Rec():
         #     noise_strength = latent_std * cfg.rec.noise * max(0, 1 - e / cfg.rec.step / cfg.rec.noise_ramp) ** 2
         #     latent_n = latent_noise(latent_in, noise_strength.item())
         #     syn_img, _ = G([latent_n], input_is_latent=True, noise=noises)
-        #     syn_img = (syn_img + 1.0) / 2.0
             
         #     Other_mask = 1 - dilation(HM_1024, iteration=10)
             
@@ -131,16 +126,16 @@ class Rec():
         #     # Orient_hair = Orient_hair.view(32, 1024 * 1024)
         #     # Orient_hair = torch.mm(Orient_hair, Orient_hair.t())
         #     mask_hair_e = erosion(mask_hair, iteration=20)
-        #     hair_styleloss = styleloss(change_img_TO01(image_1024), syn_img, mask_hair_e, HM_1024)
-        #     loss = cfg.rec.lamb_styleloss * hair_styleloss + cfg.rec.lamb_mse * mseloss(change_img_TO01(image_init) * Other_mask, syn_img * Other_mask)
-        #     loss = loss + cfg.rec.lamb_mse_hair * mseloss(change_img_TO01(image_1024) * mask, syn_img * mask)
+        #     hair_styleloss = styleloss(image_1024, syn_img, mask_hair_e, HM_1024)
+        #     loss = cfg.rec.lamb_styleloss * hair_styleloss + cfg.rec.lamb_mse * mseloss(image_init * Other_mask, syn_img * Other_mask)
+        #     loss = loss + cfg.rec.lamb_mse_hair * mseloss(image_1024 * mask, syn_img * mask)
         #     loss.backward()
         #     w_opt.step()
         #     if (e + 1) % cfg.rec.print_epoch == 0:
         #         print("\riter{}: loss -- {}".format(e + 1, loss.item()))
         #         save_img(syn_img, "results/" + image_name.split('.')[0] + '/rec_stage2', "rec_{}.png".format(e + 1))
         
-        # return latent_in, syn_img
+        return latent_in, syn_img
     
     
 if __name__ == "__main__":

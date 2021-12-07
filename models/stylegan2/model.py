@@ -485,6 +485,7 @@ class Generator(nn.Module):
             out = conv2(out, latent[:, i + 1], noise=noise2)
             skip = to_rgb(out, latent[:, i + 2], skip)
             self.layerout[out.shape[-1]] = (out, skip)
+
             i += 2
         image = skip
         return image
@@ -534,6 +535,7 @@ class Generator(nn.Module):
             input_is_latent=False,
             noise=None,
             randomize_noise=True,
+            transforms = {}
     ):
         if not input_is_latent:
             styles = [self.style(s) for s in styles]
@@ -585,7 +587,8 @@ class Generator(nn.Module):
             out = conv1(out, latent[:, i], noise=noise1)
             out = conv2(out, latent[:, i + 1], noise=noise2)
             skip = to_rgb(out, latent[:, i + 2], skip)
-
+            if out.shape[-1] in transforms:
+                out = out * transforms[out.shape[-1]][0] + transforms[out.shape[-1]][1]
             self.layerout[out.shape[-1]] = (out, skip)
 
             i += 2

@@ -47,7 +47,7 @@ def gen(root_path, mask_path):
     BG = BG.unsqueeze(1)
     mask = torch.cat([BG, FM, HM], dim=1)
     name = root_path.split('/')[-1].split('.')[0]
-    save_img(mask[0].unsqueeze(0), mask_path, name + '.png')
+    save_img(mask[0].unsqueeze(0), mask_path, name + '.png', keep=True)
     print('genmask ' + root_path.split('/')[-1] + ' ok')
 
 def gen_fullhair(image_hair, mask_hair):

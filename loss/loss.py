@@ -7,15 +7,18 @@ from configs.global_config import cfg
 import torch
 import torch.nn.functional as F
 from models.orientation import orient
+from utils.c_utils import *
 
 
 class LPIPSLoss:
-    def __init__(self, in_size=1024, out_size=256):
-        self.perceptual = nn.DataParallel(VGG16_perceptual()).cuda()
-        self.MSE_loss = nn.DataParallel(nn.MSELoss(reduction="mean")).cuda()
-        self.upsample = nn.DataParallel(nn.Upsample(scale_factor=out_size / in_size, mode='bilinear'))
+    def __init__(self, in_size=1024, out_size=256, size=['1_1', '1_2', '3_2', '4_2']):
+        self.perceptual = VGG16_perceptual().cuda()
+        self.MSE_loss = nn.MSELoss(reduction="mean").cuda()
+        self.upsample = nn.Upsample(scale_factor=out_size / in_size, mode='bilinear')
         self.insize = in_size
         self.outsize = out_size
+        self.size = size
+        
     def __call__(self, syn_img, img, mask=None, mul_mask=False):
         assert(syn_img.shape[-1] == self.insize and syn_img.shape[-2] == self.insize)
         assert(img.shape[-1] == self.insize and img.shape[-2] == self.insize)
@@ -38,10 +41,14 @@ class LPIPSLoss:
             syn0, syn1, syn2, syn3 = self.perceptual(syn_img_p)
             r0, r1, r2, r3 = self.perceptual(img_p)
             per_loss = 0
-            per_loss += self.MSE_loss(syn0, r0)
-            per_loss += self.MSE_loss(syn1, r1)
-            per_loss += self.MSE_loss(syn2, r2)
-            per_loss += self.MSE_loss(syn3, r3)
+            if '1_1' in self.size:
+                per_loss += self.MSE_loss(syn0, r0)
+            if '1_2' in self.size:
+                per_loss += self.MSE_loss(syn1, r1)
+            if '3_2' in self.size:
+                per_loss += self.MSE_loss(syn2, r2)
+            if '4_2' in self.size:
+                per_loss += self.MSE_loss(syn3, r3)
 
             loss = per_loss
             return loss
@@ -52,10 +59,14 @@ class LPIPSLoss:
 
                 mask_size = mask_p.shape[-1]
                 per_loss = 0
-                per_loss += self.MSE_loss(syn0, r0)
-                per_loss += self.MSE_loss(syn1, r1)
-                per_loss += self.MSE_loss(syn2, r2)
-                per_loss += self.MSE_loss(syn3, r3)
+                if '1_1' in self.size:
+                    per_loss += self.MSE_loss(syn0, r0)
+                if '1_2' in self.size:
+                    per_loss += self.MSE_loss(syn1, r1)
+                if '3_2' in self.size:
+                    per_loss += self.MSE_loss(syn2, r2)
+                if '4_2' in self.size:
+                    per_loss += self.MSE_loss(syn3, r3)
                 return per_loss
             else:
                 syn0, syn1, syn2, syn3 = self.perceptual(syn_img_p) 
@@ -63,14 +74,18 @@ class LPIPSLoss:
 
                 mask_size = mask_p.shape[-1]
                 per_loss = 0
-                mask_layer = F.upsample(mask_p, scale_factor=syn0.shape[-1]/mask_size)
-                per_loss += self.MSE_loss(syn0 * mask_layer, r0 * mask_layer)
-                mask_layer = F.upsample(mask_p, scale_factor=syn1.shape[-1]/mask_size)
-                per_loss += self.MSE_loss(syn1 * mask_layer, r1 * mask_layer)
-                mask_layer = F.upsample(mask_p, scale_factor=syn2.shape[-1]/mask_size)
-                per_loss += self.MSE_loss(syn2 * mask_layer, r2 * mask_layer)
-                mask_layer = F.upsample(mask_p, scale_factor=syn3.shape[-1]/mask_size)
-                per_loss += self.MSE_loss(syn3 * mask_layer, r3 * mask_layer)
+                if '1_1' in self.size:
+                    mask_layer = F.upsample(mask_p, scale_factor=syn0.shape[-1]/mask_size, mode='nearest')
+                    per_loss += self.MSE_loss(syn0 * mask_layer, r0 * mask_layer)
+                if '1_2' in self.size:
+                    mask_layer = F.upsample(mask_p, scale_factor=syn1.shape[-1]/mask_size, mode='nearest')
+                    per_loss += self.MSE_loss(syn1 * mask_layer, r1 * mask_layer)
+                if '3_2' in self.size:
+                    mask_layer = F.upsample(mask_p, scale_factor=syn2.shape[-1]/mask_size, mode='nearest')
+                    per_loss += self.MSE_loss(syn2 * mask_layer, r2 * mask_layer)
+                if '4_2' in self.size:
+                    mask_layer = F.upsample(mask_p, scale_factor=syn3.shape[-1]/mask_size, mode='nearest')
+                    per_loss += self.MSE_loss(syn3 * mask_layer, r3 * mask_layer)
                 return per_loss
 
 class I2SNoiseLoss:
