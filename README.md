@@ -22,3 +22,7 @@
 pretrain model的链接：https://drive.google.com/file/d/1VpcT5fqqypHWj3znABBtIl9yAgzE_FIF/view?usp=sharing
 
 将解压后的```pretrained_model```文件夹放到根目录中
+
+结果展示（该结果为压缩为256后的结果，实际生成图片为1024的）：
+
+![image](https://github.com/VioletSabers/HairEditing/blob/master/results.png)
