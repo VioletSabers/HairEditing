@@ -18,3 +18,7 @@
 上述例子中文件在```./results/00013_00066/```文件夹中
 
 当前仅实现了头发替换，没有头发编辑的功能。同时提供的人脸图片和头发图片需要满足ffhq的人脸对齐标准
+
+pretrain model的链接：https://drive.google.com/file/d/1VpcT5fqqypHWj3znABBtIl9yAgzE_FIF/view?usp=sharing
+
+将解压后的```pretrained_model```文件夹放到根目录中
